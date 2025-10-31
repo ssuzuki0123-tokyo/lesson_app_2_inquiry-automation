@@ -29,7 +29,7 @@ from langchain_community.retrievers import BM25Retriever
 from langchain.retrievers import EnsembleRetriever
 from docx import Document
 from langchain.output_parsers import CommaSeparatedListOutputParser
-from langchain import LLMChain
+from langchain.chains import LLMChain
 import datetime
 import constants as ct
 
@@ -65,71 +65,122 @@ def create_rag_chain(db_name):
         db_name: RAG化対象のデータを格納するデータベース名
     """
     logger = logging.getLogger(ct.LOGGER_NAME)
+    print(f"create_rag_chain開始: {db_name}")
 
-    docs_all = []
-    # AIエージェント機能を使わない場合の処理
-    if db_name == ct.DB_ALL_PATH:
-        folders = os.listdir(ct.RAG_TOP_FOLDER_PATH)
-        # 「data」フォルダ直下の各フォルダ名に対して処理
-        for folder_path in folders:
-            if folder_path.startswith("."):
-                continue
+    try:
+        docs_all = []
+        # AIエージェント機能を使わない場合の処理
+        if db_name == ct.DB_ALL_PATH:
+            print("全体データベース用の処理開始")
+            folders = os.listdir(ct.RAG_TOP_FOLDER_PATH)
+            print(f"フォルダ一覧: {folders}")
+            # 「data」フォルダ直下の各フォルダ名に対して処理
+            for folder_path in folders:
+                if folder_path.startswith("."):
+                    continue
+                print(f"フォルダ処理中: {folder_path}")
+                # フォルダ内の各ファイルのデータをリストに追加
+                add_docs(f"{ct.RAG_TOP_FOLDER_PATH}/{folder_path}", docs_all)
+        # AIエージェント機能を使う場合の処理
+        else:
+            print("個別データベース用の処理開始")
+            # データベース名に対応した、RAG化対象のデータ群が格納されているフォルダパスを取得
+            folder_path = ct.DB_NAMES[db_name]
+            print(f"対象フォルダパス: {folder_path}")
             # フォルダ内の各ファイルのデータをリストに追加
-            add_docs(f"{ct.RAG_TOP_FOLDER_PATH}/{folder_path}", docs_all)
-    # AIエージェント機能を使う場合の処理
-    else:
-        # データベース名に対応した、RAG化対象のデータ群が格納されているフォルダパスを取得
-        folder_path = ct.DB_NAMES[db_name]
-        # フォルダ内の各ファイルのデータをリストに追加
-        add_docs(folder_path, docs_all)
+            add_docs(folder_path, docs_all)
 
-    # OSがWindowsの場合、Unicode正規化と、cp932（Windows用の文字コード）で表現できない文字を除去
-    for doc in docs_all:
-        doc.page_content = adjust_string(doc.page_content)
-        for key in doc.metadata:
-            doc.metadata[key] = adjust_string(doc.metadata[key])
-    
-    text_splitter = CharacterTextSplitter(
-        chunk_size=ct.CHUNK_SIZE,
-        chunk_overlap=ct.CHUNK_OVERLAP,
-        separator="\n",
-    )
-    splitted_docs = text_splitter.split_documents(docs_all)
+        print(f"読み込んだドキュメント数: {len(docs_all)}")
 
-    embeddings = OpenAIEmbeddings()
+        # OSがWindowsの場合、Unicode正規化と、cp932（Windows用の文字コード）で表現できない文字を除去
+        print("文字列調整開始")
+        for i, doc in enumerate(docs_all):
+            print(f"ドキュメント{i}調整中")
+            doc.page_content = adjust_string(doc.page_content)
+            for key in doc.metadata:
+                doc.metadata[key] = adjust_string(doc.metadata[key])
+        print("文字列調整完了")
+        
+        print("テキスト分割開始")
+        text_splitter = CharacterTextSplitter(
+            chunk_size=ct.CHUNK_SIZE,
+            chunk_overlap=ct.CHUNK_OVERLAP,
+            separator="\n",
+        )
+        splitted_docs = text_splitter.split_documents(docs_all)
+        print(f"分割後のドキュメント数: {len(splitted_docs)}")
 
-    # すでに対象のデータベースが作成済みの場合は読み込み、未作成の場合は新規作成する
-    if os.path.isdir(db_name):
-        db = Chroma(persist_directory=".db", embedding_function=embeddings)
-    else:
-        db = Chroma.from_documents(splitted_docs, embedding=embeddings, persist_directory=".db")
-    retriever = db.as_retriever(search_kwargs={"k": ct.TOP_K})
+        print("OpenAIEmbeddings初期化開始")
+        embeddings = OpenAIEmbeddings()
+        print("OpenAIEmbeddings初期化完了")
 
-    question_generator_template = ct.SYSTEM_PROMPT_CREATE_INDEPENDENT_TEXT
-    question_generator_prompt = ChatPromptTemplate.from_messages(
-        [
-            ("system", question_generator_template),
-            MessagesPlaceholder("chat_history"),
-            ("human", "{input}"),
-        ]
-    )
-    question_answer_template = ct.SYSTEM_PROMPT_INQUIRY
-    question_answer_prompt = ChatPromptTemplate.from_messages(
-        [
-            ("system", question_answer_template),
-            MessagesPlaceholder("chat_history"),
-            ("human", "{input}"),
-        ]
-    )
+        # すでに対象のデータベースが作成済みの場合は読み込み、未作成の場合は新規作成する
+        print(f"データベース確認: {db_name}")
+        print(f"データベースディレクトリ存在確認: {os.path.isdir(db_name)}")
+        
+        if os.path.isdir(db_name):
+            print("既存データベース読み込み開始")
+            try:
+                db = Chroma(persist_directory=".db", embedding_function=embeddings)
+                print("既存データベース読み込み完了")
+            except Exception as e:
+                print(f"既存データベース読み込みエラー: {e}")
+                raise
+        else:
+            print("新規データベース作成開始")
+            try:
+                db = Chroma.from_documents(splitted_docs, embedding=embeddings, persist_directory=".db")
+                print("新規データベース作成完了")
+            except Exception as e:
+                print(f"新規データベース作成エラー: {e}")
+                raise
+        
+        print("リトリーバー作成開始")
+        retriever = db.as_retriever(search_kwargs={"k": ct.TOP_K})
+        print("リトリーバー作成完了")
 
-    history_aware_retriever = create_history_aware_retriever(
-        st.session_state.llm, retriever, question_generator_prompt
-    )
+        print("プロンプトテンプレート作成開始")
+        question_generator_template = ct.SYSTEM_PROMPT_CREATE_INDEPENDENT_TEXT
+        question_generator_prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", question_generator_template),
+                MessagesPlaceholder("chat_history"),
+                ("human", "{input}"),
+            ]
+        )
+        question_answer_template = ct.SYSTEM_PROMPT_INQUIRY
+        question_answer_prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", question_answer_template),
+                MessagesPlaceholder("chat_history"),
+                ("human", "{input}"),
+            ]
+        )
+        print("プロンプトテンプレート作成完了")
 
-    question_answer_chain = create_stuff_documents_chain(st.session_state.llm, question_answer_prompt)
-    rag_chain = create_retrieval_chain(history_aware_retriever, question_answer_chain)
+        print("履歴対応リトリーバー作成開始")
+        history_aware_retriever = create_history_aware_retriever(
+            st.session_state.llm, retriever, question_generator_prompt
+        )
+        print("履歴対応リトリーバー作成完了")
 
-    return rag_chain
+        print("質問回答チェーン作成開始")
+        question_answer_chain = create_stuff_documents_chain(st.session_state.llm, question_answer_prompt)
+        print("質問回答チェーン作成完了")
+        
+        print("RAGチェーン最終作成開始")
+        rag_chain = create_retrieval_chain(history_aware_retriever, question_answer_chain)
+        print("RAGチェーン最終作成完了")
+
+        print(f"create_rag_chain完了: {db_name}")
+        return rag_chain
+
+    except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"create_rag_chain内でエラー発生: {e}")
+        print(f"エラー詳細:\n{error_details}")
+        raise
 
 
 def add_docs(folder_path, docs_all):
@@ -140,18 +191,45 @@ def add_docs(folder_path, docs_all):
         folder_path: フォルダのパス
         docs_all: 各ファイルデータを格納するリスト
     """
-    files = os.listdir(folder_path)
-    for file in files:
-        # ファイルの拡張子を取得
-        file_extension = os.path.splitext(file)[1]
-        # 想定していたファイル形式の場合のみ読み込む
-        if file_extension in ct.SUPPORTED_EXTENSIONS:
-            # ファイルの拡張子に合ったdata loaderを使ってデータ読み込み
-            loader = ct.SUPPORTED_EXTENSIONS[file_extension](f"{folder_path}/{file}")
-        else:
-            continue
-        docs = loader.load()
-        docs_all.extend(docs)
+    print(f"add_docs開始: {folder_path}")
+    try:
+        if not os.path.exists(folder_path):
+            print(f"フォルダが存在しません: {folder_path}")
+            return
+            
+        files = os.listdir(folder_path)
+        print(f"ファイル一覧: {files}")
+        
+        for file in files:
+            print(f"ファイル処理中: {file}")
+            # ファイルの拡張子を取得
+            file_extension = os.path.splitext(file)[1]
+            print(f"拡張子: {file_extension}")
+            
+            # 想定していたファイル形式の場合のみ読み込む
+            if file_extension in ct.SUPPORTED_EXTENSIONS:
+                print(f"サポート対象ファイル: {file}")
+                # ファイルの拡張子に合ったdata loaderを使ってデータ読み込み
+                file_path = f"{folder_path}/{file}"
+                print(f"読み込み開始: {file_path}")
+                try:
+                    loader = ct.SUPPORTED_EXTENSIONS[file_extension](file_path)
+                    docs = loader.load()
+                    docs_all.extend(docs)
+                    print(f"ファイル読み込み完了: {file} ({len(docs)}個のドキュメント)")
+                except Exception as e:
+                    print(f"ファイル読み込みエラー ({file}): {e}")
+            else:
+                print(f"サポート対象外ファイル: {file} (拡張子: {file_extension})")
+                continue
+        
+        print(f"add_docs完了: {folder_path}, 総ドキュメント数: {len(docs_all)}")
+    except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"add_docs内でエラー発生: {e}")
+        print(f"エラー詳細:\n{error_details}")
+        raise
 
 
 def run_company_doc_chain(param):

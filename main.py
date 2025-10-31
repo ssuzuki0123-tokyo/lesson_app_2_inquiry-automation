@@ -30,9 +30,15 @@ logger = logging.getLogger(ct.LOGGER_NAME)
 # 初期化処理
 ############################################################
 try:
+    print("=== 初期化処理開始 ===")
     initialize()
+    print("=== 初期化処理完了 ===")
 except Exception as e:
-    logger.error(f"{ct.INITIALIZE_ERROR_MESSAGE}\n{e}")
+    import traceback
+    full_error = traceback.format_exc()
+    print(f"初期化エラー詳細: {e}")
+    print(f"スタックトレース:\n{full_error}")
+    logger.error(f"{ct.INITIALIZE_ERROR_MESSAGE}\n{e}\n{full_error}")
     st.error(utils.build_error_message(ct.INITIALIZE_ERROR_MESSAGE), icon=ct.ERROR_ICON)
     st.stop()
 

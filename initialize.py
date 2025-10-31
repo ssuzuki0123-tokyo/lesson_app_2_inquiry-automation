@@ -14,7 +14,7 @@ import streamlit as st
 import tiktoken
 from langchain_openai import ChatOpenAI
 from langchain_community.callbacks.streamlit import StreamlitCallbackHandler
-from langchain import SerpAPIWrapper
+from langchain_community.utilities import SerpAPIWrapper
 from langchain.tools import Tool
 from langchain.agents import AgentType, initialize_agent
 import utils
@@ -36,14 +36,29 @@ def initialize():
     """
     画面読み込み時に実行する初期化処理
     """
+    print("初期化処理開始")
+    
     # 初期化データの用意
+    print("セッション状態の初期化開始")
     initialize_session_state()
+    print("セッション状態の初期化完了")
+    
     # ログ出力用にセッションIDを生成
+    print("セッションID生成開始")
     initialize_session_id()
+    print("セッションID生成完了")
+    
     # ログ出力の設定
+    print("ログ設定開始")
     initialize_logger()
+    print("ログ設定完了")
+    
     # Agent Executorを作成
+    print("Agent Executor作成開始")
     initialize_agent_executor()
+    print("Agent Executor作成完了")
+    
+    print("初期化処理完了")
 
 
 def initialize_session_state():
@@ -105,25 +120,48 @@ def initialize_agent_executor():
     画面読み込み時にAgent Executor（AIエージェント機能の実行を担当するオブジェクト）を作成
     """
     logger = logging.getLogger(ct.LOGGER_NAME)
+    print("Agent Executor初期化開始")
 
     # すでにAgent Executorが作成済みの場合、後続の処理を中断
     if "agent_executor" in st.session_state:
+        print("Agent Executor既に作成済み")
         return
     
     # 消費トークン数カウント用のオブジェクトを用意
+    print("トークンエンコーダー設定開始")
     st.session_state.enc = tiktoken.get_encoding(ct.ENCODING_KIND)
+    print("トークンエンコーダー設定完了")
     
+    print("LLM初期化開始")
     st.session_state.llm = ChatOpenAI(model_name=ct.MODEL, temperature=ct.TEMPERATURE, streaming=True)
+    print("LLM初期化完了")
 
     # 各Tool用のChainを作成
+    print("RAGチェーン作成開始")
+    print(f"顧客向けRAGチェーン作成開始: {ct.DB_CUSTOMER_PATH}")
     st.session_state.customer_doc_chain = utils.create_rag_chain(ct.DB_CUSTOMER_PATH)
+    print("顧客向けRAGチェーン作成完了")
+    
+    print(f"サービス向けRAGチェーン作成開始: {ct.DB_SERVICE_PATH}")
     st.session_state.service_doc_chain = utils.create_rag_chain(ct.DB_SERVICE_PATH)
+    print("サービス向けRAGチェーン作成完了")
+    
+    print(f"会社向けRAGチェーン作成開始: {ct.DB_COMPANY_PATH}")
     st.session_state.company_doc_chain = utils.create_rag_chain(ct.DB_COMPANY_PATH)
+    print("会社向けRAGチェーン作成完了")
+    
+    print(f"全体RAGチェーン作成開始: {ct.DB_ALL_PATH}")
     st.session_state.rag_chain = utils.create_rag_chain(ct.DB_ALL_PATH)
+    print("全体RAGチェーン作成完了")
+    print("RAGチェーン作成完了")
 
     # Web検索用のToolを設定するためのオブジェクトを用意
+    print("Web検索ツール設定開始")
     search = SerpAPIWrapper()
+    print("Web検索ツール設定完了")
+    
     # Agent Executorに渡すTool一覧を用意
+    print("ツール一覧作成開始")
     tools = [
         # 会社に関するデータ検索用のTool
         Tool(
@@ -150,8 +188,10 @@ def initialize_agent_executor():
             description=ct.SEARCH_WEB_INFO_TOOL_DESCRIPTION
         )
     ]
+    print("ツール一覧作成完了")
 
     # Agent Executorの作成
+    print("Agent Executor作成開始")
     st.session_state.agent_executor = initialize_agent(
         llm=st.session_state.llm,
         tools=tools,
@@ -160,3 +200,4 @@ def initialize_agent_executor():
         early_stopping_method="generate",
         handle_parsing_errors=True
     )
+    print("Agent Executor作成完了")
